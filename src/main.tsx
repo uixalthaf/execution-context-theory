@@ -53,7 +53,7 @@ function StackPulse() {
     <div className="pulse-wrap">
       <div className="pulse-box stack-pulse-box">
         <span className="pulse-label">
-          This stack pushes and pops on its own, forever — no user input required.
+          This stack pushes and pops on its own, forever. No user input required.
         </span>
         <div className="mini-stack">
           {stack.length === 0 && <div className="mini-stack-empty">(empty)</div>}
@@ -106,68 +106,29 @@ const TRACE: StepEvent[] = [
   { kind: "pop", line: 9 },
 ];
 
-type StackEntry = { id: number; name: string };
-type LogEntry = { id: number; value: string };
-
-// Given the index of a "pop" event in TRACE, find the index of the "push"
-// event it corresponds to, so a stepped-back pop can restore the exact
-// frame (name + stable id) that was on the stack before it.
-function findMatchingPushIndex(popIndex: number): number {
-  let depth = 0;
-  for (let i = popIndex; i >= 0; i--) {
-    const ev = TRACE[i];
-    if (ev.kind === "pop") depth++;
-    if (ev.kind === "push") {
-      depth--;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
 function StepPlayground() {
   const [stepIndex, setStepIndex] = useState(0);
-  const [stack, setStack] = useState<StackEntry[]>([]);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [stack, setStack] = useState<string[]>([]);
+  const [logs, setLogs] = useState<string[]>([]);
 
-  // Each pushed frame keeps a stable id: its own index in TRACE. That id
-  // survives stepping forward and backward, so React keys stay attached
-  // to "the same call" instead of being derived from name + array position.
-  const stepForward = () => {
-    const ev = TRACE[stepIndex];
-    if (!ev) return;
-    if (ev.kind === "push") {
-      setStack((s) => [...s, { id: stepIndex, name: ev.name }]);
-    } else if (ev.kind === "pop") {
-      setStack((s) => s.slice(0, -1));
-    } else if (ev.kind === "log") {
-      setLogs((l) => [...l, { id: stepIndex, value: ev.value }]);
+  const applyStep = (index: number) => {
+    // Replay from scratch up to `index` so state is always consistent
+    let s: string[] = [];
+    let l: string[] = [];
+    for (let i = 0; i < index; i++) {
+      const ev = TRACE[i];
+      if (ev.kind === "push") s = [...s, ev.name];
+      if (ev.kind === "pop") s = s.slice(0, -1);
+      if (ev.kind === "log") l = [...l, ev.value];
     }
-    setStepIndex((i) => i + 1);
+    setStack(s);
+    setLogs(l);
   };
 
-  const stepBackward = () => {
-    const prevIndex = stepIndex - 1;
-    if (prevIndex < 0) return;
-    const ev = TRACE[prevIndex];
-    if (ev.kind === "push") {
-      setStack((s) => s.slice(0, -1));
-    } else if (ev.kind === "pop") {
-      const pushIndex = findMatchingPushIndex(prevIndex);
-      const pushEv = TRACE[pushIndex];
-      if (pushEv && pushEv.kind === "push") {
-        setStack((s) => [...s, { id: pushIndex, name: pushEv.name }]);
-      }
-    } else if (ev.kind === "log") {
-      setLogs((l) => l.slice(0, -1));
-    }
-    setStepIndex(prevIndex);
-  };
-
-  const reset = () => {
-    setStepIndex(0);
-    setStack([]);
-    setLogs([]);
+  const goTo = (index: number) => {
+    const clamped = Math.max(0, Math.min(TRACE.length, index));
+    setStepIndex(clamped);
+    applyStep(clamped);
   };
 
   const currentLine = stepIndex > 0 ? TRACE[stepIndex - 1].line : 1;
@@ -197,29 +158,25 @@ function StepPlayground() {
           <div className="card-header">Call stack</div>
           <div className="card-body">
             <div className="visual-stack">
-              {stack.length === 0 && <div className="mini-stack-empty">(empty — stack cleared)</div>}
+              {stack.length === 0 && <div className="mini-stack-empty">(empty, stack cleared)</div>}
               {stack
                 .slice()
                 .reverse()
-                .map((frame, i) => (
+                .map((name, i) => (
                   <div
-                    key={frame.id}
+                    key={name + i}
                     className={`stack-frame${i === 0 ? " top-frame" : ""}`}
                   >
-                    {frame.name}
+                    {name}
                   </div>
                 ))}
             </div>
             <div className="console-log">
               <div className="console-label">console</div>
               {logs.length === 0 ? (
-                <div className="console-empty">—</div>
+                <div className="console-empty">No output yet</div>
               ) : (
-                logs.map((entry) => (
-                  <div key={entry.id} className="console-line">
-                    {entry.value}
-                  </div>
-                ))
+                logs.map((v, i) => <div key={i} className="console-line">{v}</div>)
               )}
             </div>
           </div>
@@ -228,16 +185,16 @@ function StepPlayground() {
 
       <div className="control-panel">
         <div className="control-row step-controls">
-          <button type="button" className="btn-outline" onClick={stepBackward} disabled={stepIndex === 0}>
+          <button type="button" className="btn-outline" onClick={() => goTo(stepIndex - 1)} disabled={stepIndex === 0}>
             ← Back
           </button>
           <span className="step-counter">
             Step {stepIndex} / {TRACE.length}
           </span>
-          <button type="button" className="btn-compact" onClick={stepForward} disabled={done}>
+          <button type="button" className="btn-compact" onClick={() => goTo(stepIndex + 1)} disabled={done}>
             {done ? "Finished" : "Step →"}
           </button>
-          <button type="button" className="btn-outline" onClick={reset}>
+          <button type="button" className="btn-outline" onClick={() => goTo(0)}>
             Reset
           </button>
         </div>
@@ -253,7 +210,7 @@ function App() {
       <header className="masthead">
         <div className="signature">Written by Althaf</div>
         <div className="eyebrow">Field notes: JavaScript</div>
-        <h1>The call stack isn't scary — here's what's actually happening when your code runs</h1>
+        <h1>The call stack isn't scary. Here's what's actually happening when your code runs</h1>
         <p className="dek">
           Execution context and the call stack come up in nearly every JS interview, and most
           answers are memorized rather than understood. Tracing through a real example fixes that
@@ -281,20 +238,20 @@ function App() {
           <h2>What is an execution context?</h2>
           <p className="lede">
             An execution context is the environment JavaScript builds before it runs a piece of
-            code — it bundles up the variables in scope, the value of <code>this</code>, and a
+            code: it bundles up the variables in scope, the value of <code>this</code>, and a
             reference to the outer scope. There's a global execution context created once when
             your program starts, and a brand new function execution context created every single
             time a function is called.
           </p>
           <p>
             Each context goes through two phases. In the creation phase, JavaScript scans the code
-            about to run and sets up memory for variables and functions before executing anything
-            — this is what causes hoisting. In the execution phase, the code actually runs, line by
+            about to run and sets up memory for variables and functions before executing anything.
+            This is what causes hoisting. In the execution phase, the code actually runs, line by
             line, top to bottom.
           </p>
 
           <p className="pull-quote">
-            The call stack doesn't track your code. It tracks execution contexts — one entry for
+            The call stack doesn't track your code. It tracks execution contexts: one entry for
             every function call that hasn't returned yet.
           </p>
 
@@ -319,7 +276,7 @@ printSquare(5);`}</pre>
           <h3>Where hoisting fits in</h3>
           <p>
             Because of the creation phase, <code>var</code> declarations and function declarations
-            are set up in memory before the code runs — which is why you can call a function
+            are set up in memory before the code runs, which is why you can call a function
             declared later in the file. <code>let</code> and <code>const</code> are hoisted too,
             but into a "temporal dead zone" where referencing them before their line throws, rather
             than silently returning <code>undefined</code>.
@@ -333,7 +290,7 @@ printSquare(5);`}</pre>
           </p>
           <p>
             A common misconception is that JavaScript always executes top to bottom. Hoisting
-            already complicates that, and asynchronous code breaks it further — a <code>
+            already complicates that, and asynchronous code breaks it further. A <code>
             setTimeout</code> callback doesn't sit on the call stack waiting; it's handed off
             entirely and only gets pushed back on once the current stack is empty.
           </p>
@@ -341,14 +298,14 @@ printSquare(5);`}</pre>
             That last point is also where people conflate the call stack with the event loop.
             They're related but distinct: the call stack is strictly synchronous, one thread, one
             frame executing at a time. The event loop is the separate mechanism that watches for
-            the stack to empty and then feeds it queued callbacks — a topic worth its own post.
+            the stack to empty and then feeds it queued callbacks (a topic worth its own post).
           </p>
 
           <h3>Tools worth having in your workflow</h3>
           <p>
             Chrome DevTools shows you the real call stack for free. Open the Sources tab, set a
             breakpoint inside any function, and the Call Stack panel on the right will show you the
-            exact same push order you'd trace by hand — useful for confirming your mental model
+            exact same push order you'd trace by hand. That's useful for confirming your mental model
             against the real thing.
           </p>
         </section>
@@ -357,9 +314,9 @@ printSquare(5);`}</pre>
           <h3>Wrapping up</h3>
           <p>
             The call stack is not a separate, exotic concept from "how functions call other
-            functions" — it's a literal, visualizable record of exactly that. Once you can trace
-            three or four nested calls by hand, the rest of the mental model — hoisting, recursion
-            limits, and eventually the event loop — builds directly on top of it.
+            functions." It's a literal, visualizable record of exactly that. Once you can trace
+            three or four nested calls by hand, the rest of the mental model (hoisting, recursion
+            limits, and eventually the event loop) builds directly on top of it.
           </p>
           <h3>Next steps</h3>
           <p>
